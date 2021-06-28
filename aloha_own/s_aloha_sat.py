@@ -363,15 +363,15 @@ def sat_visible_from(base_lat, base_long):
 		else:
 			closest_sat=0
 	return visible_satellites, closest_sat
-def s_aloha(G, nodes,NGEO, packets=20, cw_min=32, cw_max=256, t_end=1000):
+def s_aloha_with_satellite(G, nodes, packets=20, cw_min=32, cw_max=256, t_end=500, max_attempts=8):
     r_pkt=[]
     mynodes=[Node(G/nodes, packets, i) for i in range(nodes)]
 #        max_time=np.amax([mynodes[i].max_time for i in range(nodes)])
-    sat_queue=[]
     t=0
     start_flag=0
     t_start=100
-    age=[0]
+    age=np.zeros(t_end+1)
+    peaks=[]
 #    print("Time, transmission time, Node, Collisions, Timestamp")
     while(t<=t_end):
         actives=[]
@@ -393,10 +393,17 @@ def s_aloha(G, nodes,NGEO, packets=20, cw_min=32, cw_max=256, t_end=1000):
             for active in actives:
                 active.collisions+=1
                 active.queue[0].collisions+=1
-                backoff=np.random.randint(1, int(2**(active.collisions)))
-                #backoff=np.random.randint(0, int(2**(active.collisions)*cw_min)-1)
-                active.queue[0].t_time=t+backoff
-            age.append(age[-1]+1)
+                if(1<=active.queue[0].collisions<=max_attempts):
+                    backoff=np.random.randint(1, int(2**(active.collisions)))
+                    #backoff=np.random.randint(0, int(2**(active.collisions)*cw_min)-1)
+                    active.queue[0].t_time=t+backoff
+                else:
+                    dropped_pkt=active.queue.pop(0)
+                    active.collisions=0
+            if(t>=t_start):
+                age[t]=age[t-1]+1
+            else:
+                age[t]=age[t-1]
                 #print(t, t+backoff, active.i, active.collisions, np.around(active.queue[0].timestamp, 2))
         elif(len(actives)==1):
             actives[0].collisions=0
@@ -405,19 +412,18 @@ def s_aloha(G, nodes,NGEO, packets=20, cw_min=32, cw_max=256, t_end=1000):
             s_pkt.t_time=t
             r_pkt.append(s_pkt)
             if(t>=t_start):
-                age.append(s_pkt.t_time-s_pkt.timestamp)
+                if((t-s_pkt.timestamp)<=age[t-1]):
+                    age[t]=(t-s_pkt.timestamp)
+                    peaks.append(age[t-1]-age[t])
+                else:
+                    age[t]=age[t-1]+1
+            else:
+                age[t]=age[t-1]
         else:
-            age.append(age[-1]+1)
-        #send the packets in r_pkt one-by-one ?
-        #NGEO, Orbital_planes
-    	visible_sats, closest_sat=sat_visible_from(45, 90)
-        if visible_sats:
-            if r_pkt:
-                base_to_sat_pkt=r_pkt.pop(0)
-                base_to_sat_pkt.base_t_time=t
-                
-        for n in range(N):
-    		NGEO[n].rotate(rotate_by)
+            if(t>=t_start):
+                age[t]=age[t-1]+1
+            else:
+                age[t]=age[t-1]
         t+=1
     max_time=t
     delay=0
@@ -431,9 +437,45 @@ def s_aloha(G, nodes,NGEO, packets=20, cw_min=32, cw_max=256, t_end=1000):
     delay/=len(t_pkt)
     #print(len(t_pkt), G, nodes)
     tput/=float(max_time-t_start)
-    average_age=np.mean(age)
-    return t_pkt, tput, delay, average_age
+    peaks=np.array(peaks)
+    return t_pkt, tput, delay, age, peaks
 
+def transmit_to_base(t, mynodes, max_attempts, t_end):
+	r_pkt=[]
+	if(t<=t_end):
+		actives=[]
+		t_packets=[]
+		for node in mynodes:
+			node.generate(t)
+			node.receive(t)
+			pkt=node.transmit(t)
+			if(pkt!=0):
+				#print(pkt.timestamp, pkt.i)
+				actives.append(node)
+				t_packets.append(pkt)
+			if(pkt==0):
+				pass
+				#print(t)
+		#print([active.i for active in actives])
+		if(len(actives)>1):
+			#collision
+			for active in actives:
+				active.collisions+=1
+				active.queue[0].collisions+=1
+				if(1<=active.queue[0].collisions<=max_attempts):
+					backoff=np.random.randint(1, int(2**(active.collisions)))
+					#backoff=np.random.randint(0, int(2**(active.collisions)*cw_min)-1)
+					active.queue[0].t_time=t+backoff
+				else:
+					dropped_pkt=active.queue.pop(0)
+					active.collisions=0
+		elif(len(actives)==1):
+			actives[0].collisions=0
+			actives[0].successes+=1
+			s_pkt=actives[0].queue.pop(0)
+			s_pkt.t_time=t
+			r_pkt.append(s_pkt)
+	return(r_pkt)
 #########################################################################################################################
 ######				Beginning of main()
 #########################################################################################################################
@@ -503,17 +545,34 @@ plt.title('Signal-to-noise ratio (SNR) in dB')
 '''
 t=0
 blind_time=0
-for i in range(6000):
-	rotate_by = 1			# time to rotate the constellation in seconds
-	t+= rotate_by
-	for n in range(N):
-		NGEO[n].rotate(rotate_by)
-	visible_sats, closest_sat=sat_visible_from(45, 90)
+base_queue=[]
+nodes=10
+G=10
+packets=20
+t_start=10
+t_end=300
+base_lat=45
+base_long=90
+base_lat=np.radians(base_lat)
+base_long=np.radians(base_long)
+base_z=Re*np.sin(base_lat)
+base_y=-Re*np.cos(base_lat)*np.cos(base_long)
+base_x=-Re*np.cos(base_lat)*np.sin(base_long)
+mynodes=[Node(G/nodes, packets, i) for i in range(nodes)]
+max_attempts=8
+for t in range(t_end+1):
+	visible_sats, closest_sat=sat_visible_from(np.degrees(base_lat), np.degrees(base_long))
+	r_pkt=transmit_to_base(t, mynodes, max_attempts, t_end)
+	base_queue.append(r_pkt)
 	if visible_sats:
-		print([(sat.i_in_plane, sat.in_plane) for sat in visible_sats], t)
+		closest_sat=visible_sats[np.argmin([np.sqrt((sat.x-base_x)**2+(sat.y-base_y)**2+(sat.z-base_z)**2) for sat in visible_sats])]
+		print(closest_sat.i_in_plane, closest_sat.in_plane, t, len(base_queue))
 	else:
 		blind_time+=1
-print("blind_time_fraction is {}".format(float(blind_time)/6000))
+	rotate_by = 1			# time to rotate the constellation in seconds
+	for n in range(N):
+		NGEO[n].rotate(rotate_by)
+print("blind_time_fraction is {}, length of base_queue {}".format(float(blind_time)/(t_end), len(base_queue)))
 		#print("{}, {}, {}, {}, {}".format('%.2f'%np.rad2deg(NGEO[n].polar_angle), '%.3f'%NGEO[n].x, '%.3f'%NGEO[n].y, '%.3f'%NGEO[n].z, '%.1f'%np.rad2deg(Orbital_planes[NGEO[n].in_plane].longitude)))
 	#Positions_NGEO = plot_constellation(op_of_the_satellites, 2)
 
