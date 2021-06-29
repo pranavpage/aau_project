@@ -186,7 +186,7 @@ def initialize_comm_params():
 	print(f'UE to NGEO (UL) link {ue2ngeo}\n')
 	return ngeoISL, ngeo2ue, ue2ngeo
 
-def plot_constellation(meta_NGEO, fig_tag):
+def plot_constellation(meta_NGEO, fig_tag, i):
 	Positions_NGEO = np.zeros((N,3))
 	for n in range(N):
 		Positions_NGEO[n,:] = [NGEO[n].x/1e6, NGEO[n].y/1e6, NGEO[n].z/1e6]
@@ -194,18 +194,20 @@ def plot_constellation(meta_NGEO, fig_tag):
 	ax = fig.gca(projection='3d')
 	#ax.set_box_aspect((np.ptp(Positions_NGEO[:,0]), np.ptp(Positions_NGEO[:,1]), np.ptp(Positions_NGEO[:,2])))
 	area = math.pi * (5**2)
-	base_lat=np.radians(0)
-	base_long=np.radians(90)
+	base_lat=np.radians(12.9716)
+	base_long=np.radians(77.5946)
 	base_z=Re*np.sin(base_lat)/1e6
-	base_y=-Re*np.cos(base_lat)*np.cos(base_long)/1e6
-	base_x=-Re*np.cos(base_lat)*np.sin(base_long)/1e6
+	base_y=Re*np.cos(base_lat)*np.sin(base_long)/1e6
+	base_x=Re*np.cos(base_lat)*np.cos(base_long)/1e6
 	ax.scatter(Positions_NGEO[:,0],Positions_NGEO[:,1], Positions_NGEO[:,2], c=meta_NGEO, s=area,label="NGEOs")
-	ax.scatter(base_x, base_y, base_z, label="Base")
+	if(i==0):
+		ax.scatter(base_x, base_y, base_z, label="Base")
+		ax.legend()
 	#ax.set_aspect('equal', 'box')
 	ax.set_xlabel('X')
 	ax.set_ylabel('Y')
 	ax.set_zlabel('Z')
-	ax.legend()
+	ax.title("{} constellation".format(specific_constellation))
 	#ax.axis('off')
 	return Positions_NGEO
 
@@ -270,8 +272,8 @@ def sat_visible_from(base_lat, base_long):
 	base_lat=np.radians(base_lat)
 	base_long=np.radians(base_long)
 	base_z=Re*np.sin(base_lat)
-	base_y=-Re*np.cos(base_lat)*np.cos(base_long)
-	base_x=-Re*np.cos(base_lat)*np.sin(base_long)
+	base_y=Re*np.cos(base_lat)*np.sin(base_long)
+	base_x=Re*np.cos(base_lat)*np.cos(base_long)
 	visible_satellites=[]
 	min_distance=Re
 	for sat in NGEO:
@@ -299,14 +301,16 @@ if random_rotation:		# Rotate the orbital planes randomly at the beginning of th
 	displacement = np.random.random(P)
 
 
-
+min_elev=30
+if(specific_constellation=="IridiumNEXT"):
+	min_elev=8.2
 ##########	Create the NGEO constellation
 distribution_angle = 2*math.pi
 if Walker_star:
 	distribution_angle /= 2
 for p in range(P):
 	longitude = distribution_angle*p/P
-	Orbital_planes.append(orbital_plane(h[p], longitude, math.radians(inclination), N_p, 30)) # The min. elevation angle for NGEOs (to define the coverage of GSs )is 30 degrees
+	Orbital_planes.append(orbital_plane(h[p], longitude, math.radians(inclination), N_p, min_elev)) # The min. elevation angle for NGEOs (to define the coverage of GSs )is 30 degrees
 	for n in range(N_p):
 		polar_angle = 2 *math.pi *(displacement[p]+n/N_p)
 		NGEO.append(satellite(p,n,h[p],polar_angle))
@@ -359,13 +363,15 @@ for i in range(6000):
 	t+= rotate_by
 	for n in range(N):
 		NGEO[n].rotate(rotate_by)
-	visible_sats, closest_sat=sat_visible_from(45, 90)
+	visible_sats, closest_sat=sat_visible_from(12.9716, 77.5946)
+	if(i%750 == 0):
+		Positions_NGEO = plot_constellation(op_of_the_satellites, 2, i)
 	if visible_sats:
 		print([(sat.i_in_plane, sat.in_plane) for sat in visible_sats], t)
 	else:
 		blind_time+=1
-print("blind_time_fraction is {}".format(float(blind_time)/6000))
+print("blind_time_fraction is {}".format(float(blind_time)/t))
 		#print("{}, {}, {}, {}, {}".format('%.2f'%np.rad2deg(NGEO[n].polar_angle), '%.3f'%NGEO[n].x, '%.3f'%NGEO[n].y, '%.3f'%NGEO[n].z, '%.1f'%np.rad2deg(Orbital_planes[NGEO[n].in_plane].longitude)))
-	#Positions_NGEO = plot_constellation(op_of_the_satellites, 2)
+
 
 plt.show()
