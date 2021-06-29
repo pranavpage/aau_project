@@ -207,7 +207,7 @@ def plot_constellation(meta_NGEO, fig_tag, i):
 	ax.set_xlabel('X')
 	ax.set_ylabel('Y')
 	ax.set_zlabel('Z')
-	ax.title("{} constellation".format(specific_constellation))
+	
 	#ax.axis('off')
 	return Positions_NGEO
 

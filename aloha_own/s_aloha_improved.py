@@ -24,7 +24,7 @@ rate=1.0 # pkt per slot
 nodes=4
 num_packets=20
 t_start=10
-t_end=300 #in seconds
+t_end=50 #in seconds
 max_attempts=8
 pkt_duration=1e-2 #10 ms
 slots_per_sec= 1/pkt_duration
@@ -39,7 +39,7 @@ inclination_geo = 0
 
 random_rotation = False	# Set to True to rotate the orbital planes randomly at the beginning of the simulation
 
-specific_constellation = "OneWeb"	# Select the constellation design among the options provided below
+specific_constellation = "IridiumNEXT"	# Select the constellation design among the options provided below
 
 
 if specific_constellation =="Kepler":
@@ -299,28 +299,29 @@ def initialize_comm_params():
 	print(f'UE to NGEO (UL) link {ue2ngeo}\n')
 	return ngeoISL, ngeo2ue, ue2ngeo
 
-def plot_constellation(meta_NGEO, fig_tag):
-	Positions_NGEO = np.zeros((N,3))
-	for n in range(N):
-		Positions_NGEO[n,:] = [NGEO[n].x/1e6, NGEO[n].y/1e6, NGEO[n].z/1e6]
-	fig = plt.figure(fig_tag)
-	ax = fig.gca(projection='3d')
-	#ax.set_box_aspect((np.ptp(Positions_NGEO[:,0]), np.ptp(Positions_NGEO[:,1]), np.ptp(Positions_NGEO[:,2])))
-	area = math.pi * (5**2)
-	base_lat=np.radians(12.9716)
-	base_long=np.radians(77.5946)
-	base_z=Re*np.sin(base_lat)/1e6
-	base_y=-Re*np.cos(base_lat)*np.cos(base_long)/1e6
-	base_x=-Re*np.cos(base_lat)*np.sin(base_long)/1e6
-	ax.scatter(Positions_NGEO[:,0],Positions_NGEO[:,1], Positions_NGEO[:,2], c=meta_NGEO, s=area,label="NGEOs")
-	ax.scatter(base_x, base_y, base_z, label="Base")
-	#ax.set_aspect('equal', 'box')
-	ax.set_xlabel('X')
-	ax.set_ylabel('Y')
-	ax.set_zlabel('Z')
-	ax.legend()
-	#ax.axis('off')
-	return Positions_NGEO
+def plot_constellation(meta_NGEO, fig_tag, i):
+    Positions_NGEO = np.zeros((N,3))
+    for n in range(N):
+    	Positions_NGEO[n,:] = [NGEO[n].x/1e6, NGEO[n].y/1e6, NGEO[n].z/1e6]
+    fig = plt.figure(fig_tag)
+    ax = fig.gca(projection='3d')
+    #ax.set_box_aspect((np.ptp(Positions_NGEO[:,0]), np.ptp(Positions_NGEO[:,1]), np.ptp(Positions_NGEO[:,2])))
+    area = math.pi * (5**2)
+    base_lat=np.radians(12.9716)
+    base_long=np.radians(77.5946)
+    base_z=Re*np.sin(base_lat)/1e6
+    base_y=-Re*np.cos(base_lat)*np.cos(base_long)/1e6
+    base_x=-Re*np.cos(base_lat)*np.sin(base_long)/1e6
+    ax.scatter(Positions_NGEO[:,0],Positions_NGEO[:,1], Positions_NGEO[:,2], c=meta_NGEO, s=area,label="NGEOs")
+    if(i==0):
+        ax.scatter(base_x, base_y, base_z, label="Base")
+        ax.legend()
+    #ax.set_aspect('equal', 'box')
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    #ax.axis('off')
+    return Positions_NGEO
 
 def get_max_slant_range():
 	max_slant_range_ngeo = np.zeros((P,P))
@@ -412,6 +413,9 @@ if random_rotation:		# Rotate the orbital planes randomly at the beginning of th
 	displacement = np.random.random(P)
 
 
+min_elev=30
+if(specific_constellation=="IridiumNEXT"):
+	min_elev=8.2
 
 ##########	Create the NGEO constellation
 distribution_angle = 2*math.pi
@@ -419,7 +423,7 @@ if Walker_star:
 	distribution_angle /= 2
 for p in range(P):
 	longitude = distribution_angle*p/P
-	Orbital_planes.append(orbital_plane(h[p], longitude, math.radians(inclination), N_p, 30)) # The min. elevation angle for NGEOs (to define the coverage of GSs )is 30 degrees
+	Orbital_planes.append(orbital_plane(h[p], longitude, math.radians(inclination), N_p, min_elev)) # The min. elevation angle for NGEOs (to define the coverage of GSs )is 30 degrees
 	for n in range(N_p):
 		polar_angle = 2 *math.pi *(displacement[p]+n/N_p)
 		NGEO.append(satellite(p,n,h[p],polar_angle))
@@ -479,7 +483,7 @@ for t in range(t_slot_end):
         if(t%slots_per_sec==0):
             print("{} out of {} seconds, sat={}".format(t/slots_per_sec, t_end, closest_sat), end="\r")
     if(t%(slots_per_sec*5)==0):
-        Positions_NGEO = plot_constellation(op_of_the_satellites, 2)
+        Positions_NGEO = plot_constellation(op_of_the_satellites, 2, t)
     if TestNetwork.transmitted_packets:
         pkt=TestNetwork.transmitted_packets[-1]
         writer.writerow([pkt.i, pkt.timestamp, pkt.t_time, pkt.collisions])
