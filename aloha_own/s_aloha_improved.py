@@ -4,7 +4,6 @@ import pandas as pd
 import glob
 import re
 import csv
-
 '''
 Every user is defined as a Node, with receive(), transmit(), and generate() methods.
 receive() : appends Packets to the queue at slot t if arrival in (t-1, t]
@@ -20,6 +19,8 @@ class Packet:
         self.t_time=0
         self.i=i
         self.collisions=0
+    def __repr__(self):
+        return "({}:{},{}, c{})".format(self.i, np.around(self.timestamp, 2), self.t_time, self.collisions)
 
 class Node:
     def __init__(self, l, num_packets, i):
@@ -33,6 +34,11 @@ class Node:
         self.successes=0
         self.busy=0
         self.transmitted_packets=[]
+    def __repr__(self):
+        if(self.queue):
+            return "| n{}, q:{}, c:{}, t:{} |".format(self.i, len(self.queue), self.queue[0].collisions, self.queue[0].t_time)
+        else:
+            return "n:{}, q:0".format(node.i)
 
     def receive(self, t):
         #arrivals in (t-1, t) are appended to the queue
@@ -121,14 +127,17 @@ nodes=4
 num_packets=20
 t_start=100
 t_end=500
-max_attempts=8
+max_attempts=4
 pkt_duration=1e-3
-np.random.seed(0)
+#np.random.seed(0)
 aoi=np.zeros((nodes, int(t_end)))
 TestNetwork=Network(rate, nodes, num_packets, t_start, t_end, max_attempts, pkt_duration)
 #print([node.arrival_times for node in TestNetwork.nodes])
 for t in range(t_end):
     TestNetwork.s_aloha(t)
+    occupied_buffers=TestNetwork.occupied_buffers
+    actives=TestNetwork.actives
+    print("At {},transmitted={}, actives={}, occupied={}, ".format(t,len(TestNetwork.transmitted_packets),actives, occupied_buffers))
     for node in TestNetwork.nodes:
         if(node.transmitted_packets):
             if(node.transmitted_packets[-1].t_time==t):
@@ -144,11 +153,11 @@ plt.figure(0)
 plt.grid()
 plt.xlabel("Time (pk duration)")
 plt.ylabel("AoI (pk duration)")
-plt.title("Age of Information variation with time for rate {} pk/pk duration".format(rate))
+plt.title("AoI variation with time for rate {} pk/pk duration, max_attempts {}".format(rate, max_attempts))
 for node in TestNetwork.nodes:
     plt.plot(aoi[node.i], label="Node {}".format(node.i))
 plt.legend()
-plt.savefig("plots/AoI_individual_highrate.png")
+plt.savefig("plots/AoI_individual_maxattempts_{}.png".format(max_attempts))
 plt.show()
     #print("t_packets {}, {} , time {}, {} ".format(len(TestNetwork.transmitted_packets),[node.i for node in TestNetwork.occupied_buffers] ,t, [node.i for node in TestNetwork.actives]))
 f = open("data/packets.csv", "w")
