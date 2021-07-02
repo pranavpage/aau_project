@@ -23,7 +23,7 @@ class Packet:
         return "({}:{},{}, c{})".format(self.i, np.around(self.timestamp, 2), self.t_time, self.collisions)
 
 class Node:
-    def __init__(self, l, num_packets, i):
+    def __init__(self, l, num_packets, i, cw_min, cw_max):
         self.i=i
         self.l=l
         self.num_packets=num_packets
@@ -34,6 +34,8 @@ class Node:
         self.successes=0
         self.busy=0
         self.transmitted_packets=[]
+        self.cw_min=cw_min
+        self.cw_max=cw_max
     def __repr__(self):
         if(self.queue):
             return "| n{}, q:{}, c:{}, t:{} |".format(self.i, len(self.queue), self.queue[0].collisions, self.queue[0].t_time)
@@ -51,10 +53,10 @@ class Node:
     def transmit(self, t):
         if(self.queue):
             t_pkt=self.queue[0]
-            if(t_pkt.collisions==0):
-                t_pkt.t_time=t
-                return t_pkt
-            elif(t_pkt.t_time==t):
+            if(t_pkt.t_time==0):
+                backoff=np.random.randint(0, int(self.cw_min))
+                t_pkt.t_time=t+backoff
+            if(t_pkt.t_time==t):
                 return t_pkt
             else:
                 return 0
@@ -67,18 +69,19 @@ class Node:
             self.arrival_times=np.cumsum(self.inter_arrival_times)
             self.max_time=int(np.ceil(np.amax(self.arrival_times)+1))
 class Network:
-    def __init__(self, rate, nodes, num_packets, t_start, t_end, max_attempts, pkt_duration):
+    def __init__(self, rate, nodes, num_packets, t_start, t_end, pkt_duration, cw_min=16, cw_max=1024):
         self.rate=rate
-        self.nodes=[Node(float(self.rate)/nodes, num_packets, i) for i in range(nodes)]
+        self.nodes=[Node(float(self.rate)/nodes, num_packets, i, cw_min, cw_max) for i in range(nodes)]
         self.individual_rate=float(rate)/nodes
         self.t_start=t_start
         self.t_end=t_end
-        self.max_attempts=max_attempts
+        self.max_attempts=np.log2(cw_max/cw_min)
         self.transmitted_packets=[]
         self.pkt_duration=pkt_duration
         self.actives=[]
         self.occupied_buffers=[]
-
+        self.cw_min=cw_min
+        self.cw_max=cw_max
     def s_aloha(self, t):
         actives=[]
         occupied_buffers=[]
@@ -98,7 +101,7 @@ class Network:
                 for active in actives:
                     active.queue[0].collisions+=1
                     if(1<=active.queue[0].collisions<=max_attempts):
-                        backoff=np.random.randint(1, int(2**(active.queue[0].collisions)))
+                        backoff=np.random.randint(1, int(self.cw_min*(2**(active.queue[0].collisions))))
                         active.queue[0].t_time=t+backoff
                     else:
                         #drop packet
@@ -122,23 +125,30 @@ class Base:
         self.base_lat_deg=base_lat_deg
         self.base_long_deg=base_long_deg
 '''
-rate=4.0
+rate=0.2
 nodes=4
 num_packets=20
 t_start=100
-t_end=500
-max_attempts=4
+t_end=5000
 pkt_duration=1e-3
+cw_min=16
+cw_max=1024
+max_attempts=int(np.log2(cw_max/cw_min))
 #np.random.seed(0)
 aoi=np.zeros((nodes, int(t_end)))
-TestNetwork=Network(rate, nodes, num_packets, t_start, t_end, max_attempts, pkt_duration)
+occupancy=np.zeros((nodes, int(t_end)))
+TestNetwork=Network(rate, nodes, num_packets, t_start, t_end, pkt_duration)
 #print([node.arrival_times for node in TestNetwork.nodes])
 for t in range(t_end):
     TestNetwork.s_aloha(t)
     occupied_buffers=TestNetwork.occupied_buffers
     actives=TestNetwork.actives
-    print("At {},transmitted={}, actives={}, occupied={}, ".format(t,len(TestNetwork.transmitted_packets),actives, occupied_buffers))
+#    print("At {},transmitted={}, actives={}, occupied={}, ".format(t,len(TestNetwork.transmitted_packets),actives, occupied_buffers))
     for node in TestNetwork.nodes:
+        if(node.queue):
+            occupancy[node.i][t]=len(node.queue)
+        else:
+            occupancy[node.i][t]=0
         if(node.transmitted_packets):
             if(node.transmitted_packets[-1].t_time==t):
                 if(node.transmitted_packets[-1].t_time-np.ceil(node.transmitted_packets[-1].timestamp) <= aoi[node.i][t-1]):
@@ -157,13 +167,23 @@ plt.title("AoI variation with time for rate {} pk/pk duration, max_attempts {}".
 for node in TestNetwork.nodes:
     plt.plot(aoi[node.i], label="Node {}".format(node.i))
 plt.legend()
-plt.savefig("plots/AoI_individual_maxattempts_{}.png".format(max_attempts))
+plt.savefig("plots/AoI_individual_CW_maxattempts_{}.png".format(max_attempts))
 plt.show()
+plt.figure(1)
+plt.grid()
+plt.xlabel("Time (pk duration)")
+plt.ylabel("Instantaneous queue size")
+plt.title("Instantaneous queue size for rate {}, max_attempts {}".format(rate, max_attempts))
+for node in TestNetwork.nodes:
+    plt.plot(occupancy[node.i], label="Node {}, average_size {}".format(node.i, np.mean(occupancy[node.i])))
+plt.legend()
+plt.show()
+plt.savefig("plots/Inst_queue_size_maxattempts_{}".format(max_attempts))
     #print("t_packets {}, {} , time {}, {} ".format(len(TestNetwork.transmitted_packets),[node.i for node in TestNetwork.occupied_buffers] ,t, [node.i for node in TestNetwork.actives]))
-f = open("data/packets.csv", "w")
+f = open("data/packets_CW.csv", "w")
 columns=["i", "timestamp", "t_time", "collisions"]
 writer=csv.writer(f)
 writer.writerow(columns)
 for pkt in TestNetwork.transmitted_packets:
     writer.writerow([pkt.i, pkt.timestamp, pkt.t_time, pkt.collisions])
-df=pd.read_csv("data/packets.csv")
+#df=pd.read_csv("data/packets_CW.csv")
