@@ -100,7 +100,7 @@ class Network:
                 #print([active.queue[0].i for active in actives], t)
                 for active in actives:
                     active.queue[0].collisions+=1
-                    if(1<=active.queue[0].collisions<=max_attempts):
+                    if(1<=active.queue[0].collisions<=self.max_attempts):
                         backoff=np.random.randint(1, int(self.cw_min*(2**(active.queue[0].collisions))))
                         active.queue[0].t_time=t+backoff
                     else:
@@ -125,65 +125,69 @@ class Base:
         self.base_lat_deg=base_lat_deg
         self.base_long_deg=base_long_deg
 '''
-rate=0.2
-nodes=4
-num_packets=20
-t_start=100
-t_end=5000
-pkt_duration=1e-3
-cw_min=16
-cw_max=1024
-max_attempts=int(np.log2(cw_max/cw_min))
-#np.random.seed(0)
-aoi=np.zeros((nodes, int(t_end)))
-occupancy=np.zeros((nodes, int(t_end)))
-TestNetwork=Network(rate, nodes, num_packets, t_start, t_end, pkt_duration)
-#print([node.arrival_times for node in TestNetwork.nodes])
-for t in range(t_end):
-    TestNetwork.s_aloha(t)
-    occupied_buffers=TestNetwork.occupied_buffers
-    actives=TestNetwork.actives
-#    print("At {},transmitted={}, actives={}, occupied={}, ".format(t,len(TestNetwork.transmitted_packets),actives, occupied_buffers))
-    for node in TestNetwork.nodes:
-        if(node.queue):
-            occupancy[node.i][t]=len(node.queue)
-        else:
-            occupancy[node.i][t]=0
-        if(node.transmitted_packets):
-            if(node.transmitted_packets[-1].t_time==t):
-                if(node.transmitted_packets[-1].t_time-np.ceil(node.transmitted_packets[-1].timestamp) <= aoi[node.i][t-1]):
-                    aoi[node.i][t]=node.transmitted_packets[-1].t_time-np.ceil(node.transmitted_packets[-1].timestamp)
+def main():
+    rate=0.2
+    nodes=4
+    num_packets=20
+    t_start=100
+    t_end=1000
+    pkt_duration=1e-3
+    cw_min=16
+    cw_max=1024
+    max_attempts=int(np.log2(cw_max/cw_min))
+    #np.random.seed(0)
+    aoi=np.zeros((nodes, int(t_end)))
+    occupancy=np.zeros((nodes, int(t_end)))
+    TestNetwork=Network(rate, nodes, num_packets, t_start, t_end, pkt_duration)
+    #print([node.arrival_times for node in TestNetwork.nodes])
+    for t in range(t_end):
+        TestNetwork.s_aloha(t)
+        occupied_buffers=TestNetwork.occupied_buffers
+        actives=TestNetwork.actives
+    #    print("At {},transmitted={}, actives={}, occupied={}, ".format(t,len(TestNetwork.transmitted_packets),actives, occupied_buffers))
+        for node in TestNetwork.nodes:
+            if(node.queue):
+                occupancy[node.i][t]=len(node.queue)
+            else:
+                occupancy[node.i][t]=0
+            if(node.transmitted_packets):
+                if(node.transmitted_packets[-1].t_time==t):
+                    if(node.transmitted_packets[-1].t_time-np.ceil(node.transmitted_packets[-1].timestamp) <= aoi[node.i][t-1]):
+                        aoi[node.i][t]=node.transmitted_packets[-1].t_time-np.ceil(node.transmitted_packets[-1].timestamp)
+                    else:
+                        aoi[node.i][t]=aoi[node.i][t-1]+1
                 else:
                     aoi[node.i][t]=aoi[node.i][t-1]+1
             else:
                 aoi[node.i][t]=aoi[node.i][t-1]+1
-        else:
-            aoi[node.i][t]=aoi[node.i][t-1]+1
-plt.figure(0)
-plt.grid()
-plt.xlabel("Time (pk duration)")
-plt.ylabel("AoI (pk duration)")
-plt.title("AoI variation with time for rate {} pk/pk duration, max_attempts {}".format(rate, max_attempts))
-for node in TestNetwork.nodes:
-    plt.plot(aoi[node.i], label="Node {}".format(node.i))
-plt.legend()
-plt.savefig("plots/AoI_individual_CW_maxattempts_{}.png".format(max_attempts))
-plt.show()
-plt.figure(1)
-plt.grid()
-plt.xlabel("Time (pk duration)")
-plt.ylabel("Instantaneous queue size")
-plt.title("Instantaneous queue size for rate {}, max_attempts {}".format(rate, max_attempts))
-for node in TestNetwork.nodes:
-    plt.plot(occupancy[node.i], label="Node {}, average_size {}".format(node.i, np.mean(occupancy[node.i])))
-plt.legend()
-plt.show()
-plt.savefig("plots/Inst_queue_size_maxattempts_{}".format(max_attempts))
-    #print("t_packets {}, {} , time {}, {} ".format(len(TestNetwork.transmitted_packets),[node.i for node in TestNetwork.occupied_buffers] ,t, [node.i for node in TestNetwork.actives]))
-f = open("data/packets_CW.csv", "w")
-columns=["i", "timestamp", "t_time", "collisions"]
-writer=csv.writer(f)
-writer.writerow(columns)
-for pkt in TestNetwork.transmitted_packets:
-    writer.writerow([pkt.i, pkt.timestamp, pkt.t_time, pkt.collisions])
-#df=pd.read_csv("data/packets_CW.csv")
+    plt.figure(0)
+    plt.grid()
+    plt.xlabel("Time (pk duration)")
+    plt.ylabel("AoI (pk duration)")
+    plt.title("AoI variation with time for rate {} pk/pk duration, max_attempts {}".format(rate, max_attempts))
+    for node in TestNetwork.nodes:
+        plt.plot(aoi[node.i], label="Node {}".format(node.i))
+    plt.legend()
+    plt.savefig("plots/AoI_individual_CW_maxattempts_{}_{}s.png".format(max_attempts, t_end))
+    plt.show()
+    plt.figure(1)
+    plt.grid()
+    plt.xlabel("Time (pk duration)")
+    plt.ylabel("Instantaneous queue size")
+    plt.title("Instantaneous queue size for rate {}, max_attempts {}".format(rate, max_attempts))
+    for node in TestNetwork.nodes:
+        plt.plot(occupancy[node.i], label="Node {}, average_size {}".format(node.i, np.mean(occupancy[node.i])))
+    plt.legend()
+    plt.savefig("plots/Inst_queue_size_maxattempts_{}_{}s".format(max_attempts, t_end))
+    plt.show()
+
+        #print("t_packets {}, {} , time {}, {} ".format(len(TestNetwork.transmitted_packets),[node.i for node in TestNetwork.occupied_buffers] ,t, [node.i for node in TestNetwork.actives]))
+    f = open("data/packets_CW.csv", "w")
+    columns=["i", "timestamp", "t_time", "collisions"]
+    writer=csv.writer(f)
+    writer.writerow(columns)
+    for pkt in TestNetwork.transmitted_packets:
+        writer.writerow([pkt.i, pkt.timestamp, pkt.t_time, pkt.collisions])
+    #df=pd.read_csv("data/packets_CW.csv")
+if __name__=="__main__":
+    main()
