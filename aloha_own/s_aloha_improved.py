@@ -127,10 +127,10 @@ class Base:
 '''
 def main():
     rate=0.2
-    nodes=4
+    nodes=10
     num_packets=20
     t_start=100
-    t_end=1000
+    t_end=5000
     pkt_duration=1e-3
     cw_min=16
     cw_max=1024

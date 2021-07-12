@@ -10,14 +10,14 @@ from scipy.optimize import curve_fit
 nodes=4
 num_packets=20
 t_start=100
-t_end=1000
+t_end=3000
 pkt_duration=1e-3
 cw_min=16
 cw_max=1024
 max_attempts=int(np.log2(cw_max/cw_min))
 occupancy=np.zeros((nodes, int(t_end)))
 #print([node.arrival_times for node in TestNetwork.nodes])
-rate_arr=np.linspace(0.01, 0.5, 100)
+rate_arr=np.linspace(0.18, 0.26, 50)
 average_queue_size=np.zeros((nodes, len(rate_arr)))
 average_tput=np.zeros_like(rate_arr)
 runs=3
