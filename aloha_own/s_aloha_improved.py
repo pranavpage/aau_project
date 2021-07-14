@@ -20,13 +20,15 @@ c = 299792458	# Speed of light [m/s]
 eff = 0.6 	# Efficiency of the parabolic antenna
 
 ###### S-ALOHA parameters
-rate=1.0 # pkt per slot
-nodes=4
+rate=0.2
+nodes=6
 num_packets=20
-t_start=10
-t_end=50 #in seconds
-max_attempts=8
-pkt_duration=1e-2 #10 ms
+t_start=0
+t_end=200
+pkt_duration=1e-2
+cw_min=16
+cw_max=1024
+max_attempts=int(np.log2(cw_max/cw_min))
 slots_per_sec= 1/pkt_duration
 t_slot_end=int(slots_per_sec*t_end)
 
@@ -172,95 +174,7 @@ transmit() : if the queue is non-empty, and the pkt at the top of queue has its 
 generate() : generates more Packets by adding more inter_arrival_times
 t is the slot number. t * slot_duration is the actual time
 '''
-class Packet:
-    def __init__(self, timestamp, i):
-        self.timestamp=timestamp
-        self.t_time=0
-        self.i=i
-        self.collisions=0
-
-class Node:
-    def __init__(self, l, num_packets, i):
-        self.i=i
-        self.l=l
-        self.num_packets=num_packets
-        self.inter_arrival_times=np.random.exponential(1/l, (num_packets))
-        self.arrival_times=np.cumsum(self.inter_arrival_times)
-        self.max_time=int(np.ceil(np.amax(self.arrival_times))+1)
-        self.queue=[]
-        self.successes=0
-        self.busy=0
-        self.transmitted_packets=[]
-
-    def receive(self, t):
-        #arrivals in (t-1, t) are appended to the queue
-        for timestamp in self.arrival_times:
-            if(t==np.ceil(timestamp)):
-                self.queue.append(Packet(timestamp, self.i))
-        if(self.queue):
-            self.busy+=1
-
-    def transmit(self, t):
-        if(self.queue):
-            t_pkt=self.queue[0]
-            if(t_pkt.collisions==0):
-                t_pkt.t_time=t
-                return t_pkt
-            elif(t_pkt.t_time==t):
-                return t_pkt
-            else:
-                return 0
-        else:
-            return 0
-
-    def generate(self, t):
-        if(t==int(self.max_time-1)):
-            self.inter_arrival_times=np.append(self.inter_arrival_times, (np.random.exponential(1/self.l, (15))))
-            self.arrival_times=np.cumsum(self.inter_arrival_times)
-            self.max_time=int(np.ceil(np.amax(self.arrival_times)+1))
-class Network:
-    def __init__(self, rate, nodes, num_packets, t_start, t_end, max_attempts, pkt_duration):
-        self.rate=rate
-        self.nodes=[Node(float(self.rate)/nodes, num_packets, i) for i in range(nodes)]
-        self.individual_rate=float(rate)/nodes
-        self.t_start=t_start
-        self.t_end=t_end
-        self.max_attempts=max_attempts
-        self.transmitted_packets=[]
-        self.pkt_duration=pkt_duration
-        self.actives=[]
-        self.occupied_buffers=[]
-
-    def s_aloha(self, t):
-        actives=[]
-        occupied_buffers=[]
-        for node in self.nodes:
-            node.generate(t)
-            node.receive(t)
-            pkt=node.transmit(t)
-            if(node.queue):
-                occupied_buffers.append(node)
-            if(pkt):
-                actives.append(node)
-        self.actives=actives
-        self.occupied_buffers=occupied_buffers
-        if(actives):
-            if(len(actives)>1):
-                #print([active.queue[0].i for active in actives], t)
-                for active in actives:
-                    active.queue[0].collisions+=1
-                    if(1<=active.queue[0].collisions<=max_attempts):
-                        backoff=np.random.randint(1, int(2**(active.queue[0].collisions)))
-                        active.queue[0].t_time=t+backoff
-                    else:
-                        #drop packet
-                        dropped_pkt=active.queue.pop(0)
-            elif(len(actives)==1):
-                actives[0].successes+=1
-                transmitted_packet=actives[0].queue.pop(0)
-                transmitted_packet.t_time=t
-                self.transmitted_packets.append(transmitted_packet)
-                actives[0].transmitted_packets.append(transmitted_packet)
+from s_aloha_classes import Node, Packet, Network
 def initialize_comm_params():
 	####### NGEO ISL
 	f = 26e9	# Carrier frequency GEO to ground (Hz)
@@ -299,20 +213,22 @@ def initialize_comm_params():
 	print(f'UE to NGEO (UL) link {ue2ngeo}\n')
 	return ngeoISL, ngeo2ue, ue2ngeo
 
-def plot_constellation(meta_NGEO, fig_tag, i):
+def plot_constellation(closest_sat, fig_tag, i):
     Positions_NGEO = np.zeros((N,3))
     for n in range(N):
     	Positions_NGEO[n,:] = [NGEO[n].x/1e6, NGEO[n].y/1e6, NGEO[n].z/1e6]
     fig = plt.figure(fig_tag)
     ax = fig.gca(projection='3d')
     #ax.set_box_aspect((np.ptp(Positions_NGEO[:,0]), np.ptp(Positions_NGEO[:,1]), np.ptp(Positions_NGEO[:,2])))
-    area = math.pi * (5**2)
+    area = math.pi * (3**2)
     base_lat=np.radians(12.9716)
     base_long=np.radians(77.5946)
     base_z=Re*np.sin(base_lat)/1e6
     base_y=-Re*np.cos(base_lat)*np.cos(base_long)/1e6
     base_x=-Re*np.cos(base_lat)*np.sin(base_long)/1e6
-    ax.scatter(Positions_NGEO[:,0],Positions_NGEO[:,1], Positions_NGEO[:,2], c=meta_NGEO, s=area,label="NGEOs")
+    ax.scatter(Positions_NGEO[:,0],Positions_NGEO[:,1], Positions_NGEO[:,2], marker='x',label="NGEOs", color='b', alpha=0.2)
+    ax.scatter(closest_sat.x/1e6, closest_sat.y/1e6, closest_sat.z/1e6, s=area, color='r', alpha=1)
+#    print(closest_sat.x/1e6, closest_sat.y/1e6, closest_sat.z/1e6)
     if(i==0):
         ax.scatter(base_x, base_y, base_z, label="Base")
         ax.legend()
@@ -398,7 +314,18 @@ def sat_visible_from(base_lat, base_long): #base_lat and base_long to be in degr
                 min_distance=min(distance, min_distance)
             if visible_satellites:
                 closest_sat=visible_satellites[np.argmin([np.sqrt((sat.x-base_x)**2+(sat.y-base_y)**2+(sat.z-base_z)**2) for sat in visible_satellites])]
-    return visible_satellites, closest_sat
+                closest_sat_distance=np.sqrt((closest_sat.x-base_x)**2+(closest_sat.y-base_y)**2+(closest_sat.z-base_z)**2)
+    return visible_satellites, closest_sat, closest_sat_distance
+def pkt_forward(sat_from, sat_to, t_slot):#id of the two satellites as input
+    if(LoS_ngeo[sat_from, sat_to]):
+        pkt=NGEO[sat_from].queue.pop(0)
+        delay=slantRange_ngeo[sat_from, sat_to]/c
+        pkt.sat_r_time+=delay/pkt_duration
+        NGEO[sat_to].queue.append(pkt)
+    elif(sat_from<sat_to):
+        pass
+        #print("Not visible for forwarding", end='\r')
+
 #########################################################################################################################
 ######				Beginning of main()
 #########################################################################################################################
@@ -430,6 +357,7 @@ for p in range(P):
 		NGEO[ID].rotate(0)				# To calculate cartesian coordinates
 		op_of_the_satellites[ID] = p
 		#print(NGEO[ID])
+		#print(ID, NGEO[ID].i_in_plane+NGEO[ID].in_plane*N_p)
 		ID +=1
 print(f'NGEO orbital plane params.:{Orbital_planes[p]}\n')
 
@@ -455,48 +383,58 @@ np.savetxt(f'{specific_constellation}_slant_range_NGEO.csv',slantRange_ngeo, del
 '''
 Slotted ALOHA to be implemented here. Returns a packet to be stored in the Base Station's queue. Implements
 collision detection for each slot t .
-
-
-class Base:
-    def __init__(self, base_lat_deg, base_long_deg):
-        self.queue=[]
-        self.base_lat_deg=base_lat_deg
-        self.base_long_deg=base_long_deg
+Each packet is directed towards a particular satellite. If the satellite goes out of view, the packets are to be forwarded by the visible satellite.
 '''
 
-TestNetwork=Network(rate, nodes, num_packets, t_start, t_slot_end, max_attempts, pkt_duration)
+TestNetwork=Network(rate, nodes, num_packets, t_start, t_end, pkt_duration)
 #print([node.arrival_times for node in TestNetwork.nodes])
 blind_time=0
-f = open("data/packets_sent_to_base.csv", "w")
-columns=["i", "timestamp", "t_time", "collisions"]
+f = open("data/packets_sent_to_sat.csv", "w")
+columns=["i", "timestamp", "t_time", "collisions", "base_t_time", "satellite", "sat_r_time"]
 writer=csv.writer(f)
 writer.writerow(columns)
 print("{} constellation with base at ({}, {})".format(specific_constellation, base_lat, base_long))
 print("Run started")
+base_queue=[]
+sat_number=-1
 for t in range(t_slot_end):
-    visible_sats, closest_sat=sat_visible_from(base_lat, base_long)
+    visible_sats, closest_sat, closest_sat_distance=sat_visible_from(base_lat, base_long)
     TestNetwork.s_aloha(t)
+    if TestNetwork.transmitted_packets:
+        pkt=TestNetwork.transmitted_packets[-1]
+        if(pkt.t_time==t):
+            pkt.base_t_time=t+1
+            base_queue.append(pkt)
+        if visible_sats:
+            if base_queue:
+                if(base_queue[0].base_t_time==t):
+                    b_to_s_pkt = base_queue.pop(0)
+                    closest_sat_id=closest_sat.i_in_plane+closest_sat.in_plane*N_p
+                    b_to_s_pkt.sat_id=closest_sat_id
+                    delay=closest_sat_distance/c
+                    b_to_s_pkt.sat_r_time=t+delay/pkt_duration
+                    closest_sat.queue.append(b_to_s_pkt)
+                    if(sat_number==-1):
+                        sat_number=closest_sat_id
+                    pkt_forward(closest_sat_id, sat_number, t)
+
+        else:
+            blind_time+=1
     if(visible_sats):
         if(t%slots_per_sec==0):
-            print("{} out of {} seconds, sat={}, plane={}, queue={}".format(t/slots_per_sec, t_end, closest_sat.i_in_plane, closest_sat.in_plane, len(closest_sat.queue)), end="\r")
+            print("{} out of {} seconds, sat={}, plane={}, sat_queue={}, base_queue={}".format(t/slots_per_sec, t_end, closest_sat.i_in_plane, closest_sat.in_plane, len(closest_sat.queue), len(base_queue)), end="\r")
     else:
         if(t%slots_per_sec==0):
             print("{} out of {} seconds, sat={}".format(t/slots_per_sec, t_end, closest_sat), end="\r")
-    if(t%(slots_per_sec*5)==0):
-        Positions_NGEO = plot_constellation(op_of_the_satellites, 2, t)
-    if TestNetwork.transmitted_packets:
-        pkt=TestNetwork.transmitted_packets[-1]
-        writer.writerow([pkt.i, pkt.timestamp, pkt.t_time, pkt.collisions])
-        if visible_sats:
-            b_to_s_pkt = TestNetwork.transmitted_packets.pop(0)
-            closest_sat.queue.append(b_to_s_pkt)
-        else:
-            blind_time+=1
+    if(t%(slots_per_sec*20)==0):
+        if(visible_sats):
+        	Positions_NGEO = plot_constellation(closest_sat,  2, t)
     rotate_by = pkt_duration
     for n in range(N):
         NGEO[n].rotate(rotate_by)
 print("Run finished, blind time fraction is {}".format(float(blind_time)/t_slot_end))
-
+for pkt in NGEO[sat_number].queue:
+    writer.writerow([pkt.i, pkt.timestamp, pkt.t_time, pkt.collisions, pkt.base_t_time, sat_number, pkt.sat_r_time])
 for n in range(N):
     if(NGEO[n].queue):
         print(NGEO[n])
